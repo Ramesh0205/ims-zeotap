@@ -5,7 +5,6 @@ const API = 'http://localhost:8000/api';
 
 const PRIORITY_COLORS = { P0: '#ff4444', P1: '#ff8800', P2: '#ffcc00', P3: '#44bb44' };
 const STATUS_COLORS = { OPEN: '#ff4444', INVESTIGATING: '#ff8800', RESOLVED: '#4488ff', CLOSED: '#44bb44' };
-
 const RCA_CATEGORIES = ['DB_FAILURE', 'NETWORK_ISSUE', 'MEMORY_LEAK', 'CONFIG_ERROR', 'INFRA_FAILURE', 'CODE_BUG', 'THIRD_PARTY', 'UNKNOWN'];
 
 export default function App() {
@@ -53,20 +52,39 @@ export default function App() {
       await axios.patch(`${API}/incidents/${selected.id}/status`, { status: 'next' });
       setMsg('✅ Status updated!');
       fetchIncidents();
-      selectIncident(selected);
+      setTimeout(() => selectIncident(selected), 500);
     } catch (e) {
       setMsg('❌ ' + (e.response?.data?.detail || 'Error'));
     }
   };
 
   const submitRCA = async () => {
+    if (!rca.incident_start || !rca.incident_end) {
+      setMsg('❌ Please fill in both incident start and end times');
+      return;
+    }
+    if (rca.fix_applied.length < 10) {
+      setMsg('❌ Fix Applied must be at least 10 characters');
+      return;
+    }
+    if (rca.prevention_steps.length < 10) {
+      setMsg('❌ Prevention Steps must be at least 10 characters');
+      return;
+    }
     try {
-      await axios.post(`${API}/incidents/${selected.id}/rca`, rca);
+      const payload = {
+        incident_start: new Date(rca.incident_start).toISOString(),
+        incident_end: new Date(rca.incident_end).toISOString(),
+        root_cause_category: rca.root_cause_category,
+        fix_applied: rca.fix_applied,
+        prevention_steps: rca.prevention_steps
+      };
+      await axios.post(`${API}/incidents/${selected.id}/rca`, payload);
       setMsg('✅ RCA submitted successfully!');
       setShowRCA(false);
       fetchIncidents();
     } catch (e) {
-      setMsg('❌ ' + (e.response?.data?.detail || 'Error'));
+      setMsg('❌ ' + (e.response?.data?.detail || 'Error submitting RCA'));
     }
   };
 
@@ -83,7 +101,7 @@ export default function App() {
     } catch (e) { setMsg('❌ Error sending signal'); }
   };
 
-  const s = { 
+  const s = {
     app: { fontFamily: 'monospace', background: '#0d1117', minHeight: '100vh', color: '#c9d1d9', padding: 16 },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #30363d', paddingBottom: 12, marginBottom: 16 },
     title: { color: '#58a6ff', fontSize: 22, margin: 0 },
@@ -110,14 +128,10 @@ export default function App() {
       </div>
 
       <div style={s.layout}>
-        {/* LEFT: Incident List */}
         <div style={s.card}>
           <h3 style={{color:'#58a6ff', marginTop:0}}>🔴 Live Incidents ({incidents.length})</h3>
           {incidents.length === 0 && <p style={{color:'#8b949e'}}>No incidents. Send a signal to create one.</p>}
-          {incidents.sort((a,b) => {
-            const po = {P0:0,P1:1,P2:2,P3:3};
-            return (po[a.priority]||3) - (po[b.priority]||3);
-          }).map(inc => (
+          {[...incidents].sort((a,b) => ({P0:0,P1:1,P2:2,P3:3}[a.priority]||3) - ({P0:0,P1:1,P2:2,P3:3}[b.priority]||3)).map(inc => (
             <div key={inc.id} style={s.incCard(inc.priority, selected?.id === inc.id)} onClick={() => selectIncident(inc)}>
               <div style={{marginBottom:6}}>
                 <span style={s.badge(PRIORITY_COLORS[inc.priority])}>{inc.priority}</span>
@@ -133,7 +147,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* RIGHT: Incident Detail */}
         <div style={s.card}>
           {!selected ? (
             <div style={{color:'#8b949e', textAlign:'center', marginTop:40}}>
@@ -155,40 +168,34 @@ export default function App() {
 
               <div style={{marginBottom:12}}>
                 {selected.status !== 'CLOSED' && (
-                  <button style={s.btn('#1f6feb')} onClick={advanceStatus}>
-                    ▶ Advance Status
-                  </button>
+                  <button style={s.btn('#1f6feb')} onClick={advanceStatus}>▶ Advance Status</button>
                 )}
                 {!selected.has_rca && (
-                  <button style={s.btn('#6f42c1')} onClick={() => setShowRCA(!showRCA)}>
-                    📝 Submit RCA
-                  </button>
+                  <button style={s.btn('#6f42c1')} onClick={() => { setShowRCA(!showRCA); setMsg(''); }}>📝 Submit RCA</button>
                 )}
               </div>
 
               {msg && <div style={s.msg}>{msg}</div>}
 
-              {/* RCA Form */}
               {showRCA && (
                 <div style={{background:'#0d1117', border:'1px solid #6f42c1', borderRadius:6, padding:12, marginBottom:12}}>
                   <h4 style={{color:'#6f42c1', marginTop:0}}>📝 Root Cause Analysis</h4>
-                  <label style={s.label}>Incident Start</label>
-                  <input style={s.input} type="datetime-local" onChange={e => setRca({...rca, incident_start: e.target.value+':00Z'})} />
-                  <label style={s.label}>Incident End</label>
-                  <input style={s.input} type="datetime-local" onChange={e => setRca({...rca, incident_end: e.target.value+':00Z'})} />
-                  <label style={s.label}>Root Cause Category</label>
+                  <label style={s.label}>Incident Start *</label>
+                  <input style={s.input} type="datetime-local" onChange={e => setRca({...rca, incident_start: e.target.value})} />
+                  <label style={s.label}>Incident End *</label>
+                  <input style={s.input} type="datetime-local" onChange={e => setRca({...rca, incident_end: e.target.value})} />
+                  <label style={s.label}>Root Cause Category *</label>
                   <select style={s.input} onChange={e => setRca({...rca, root_cause_category: e.target.value})}>
                     {RCA_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <label style={s.label}>Fix Applied (min 10 chars)</label>
-                  <textarea style={{...s.input, height:60}} onChange={e => setRca({...rca, fix_applied: e.target.value})} />
-                  <label style={s.label}>Prevention Steps (min 10 chars)</label>
-                  <textarea style={{...s.input, height:60}} onChange={e => setRca({...rca, prevention_steps: e.target.value})} />
+                  <label style={s.label}>Fix Applied (min 10 chars) *</label>
+                  <textarea style={{...s.input, height:60}} placeholder="Describe what was done to fix the issue..." onChange={e => setRca({...rca, fix_applied: e.target.value})} />
+                  <label style={s.label}>Prevention Steps (min 10 chars) *</label>
+                  <textarea style={{...s.input, height:60}} placeholder="Describe steps to prevent recurrence..." onChange={e => setRca({...rca, prevention_steps: e.target.value})} />
                   <button style={s.btn('#6f42c1')} onClick={submitRCA}>Submit RCA</button>
                 </div>
               )}
 
-              {/* Raw Signals */}
               <h4 style={{color:'#58a6ff'}}>📡 Raw Signals ({signals.length})</h4>
               <div style={{maxHeight:250, overflowY:'auto'}}>
                 {signals.length === 0 && <p style={{color:'#8b949e', fontSize:12}}>No signals found</p>}
